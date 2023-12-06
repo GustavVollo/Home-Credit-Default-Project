@@ -1,0 +1,542 @@
+---
+title: "Exploartory Data Analysis - Capstone"
+author: "Gustav Vollo"
+date: "10/5/2023"
+output: 
+  html_document: 
+    theme: cosmo
+    toc: yes
+---
+## Load packages
+
+```{r setup, include=FALSE}
+# Load libraries
+library(rmarkdown)
+library(psych)
+library(scatterplot3d)
+library(tidyverse)
+library(caret)
+library(dplyr)
+```
+
+## Load data
+
+```{r}
+
+a_train <- read.csv("application_train.csv")
+bureau <- read.csv("bureau.csv")
+CD_balance <- read.csv("credit_card_balance.csv")
+inst_pmt <- read.csv("installments_payments.csv")
+PC_balance <- read.csv("POS_CASH_balance.csv")
+#prev_app <- read.csv("previous_application.csv") # loading lower
+# a_test <- read.csv("application_test.csv") # don't need it yet
+# b_balance <- read.csv("bureau_balance.csv") # not going to use the data
+# HC_description <- read.csv("HomeCredit_columns_description.csv") # no need to do analysis on this
+# sample_sub <- read.csv("sample_submission.csv") # don't need it yet
+
+```
+# EDA
+
+In order to go ahead with the EDA, the assumed problem is to increase the probability of predicting the target variable, with the TARGET being a binomial 0 and 1 value. In the EDA, the datasets will be consolidated and the variables will be cleaned. There will also be some exploration into some variables as well as into the relationship to the target variable. 
+
+## Exploration of Target variable
+
+```{r}
+str(a_train$TARGET)
+
+# Change Target variable to factor instead of integer
+a_train$TARGET <- as.factor(a_train$TARGET)
+
+# Summary of TARGET variable
+summary(a_train$TARGET)
+str(a_train$TARGET)
+
+a_train%>%
+  group_by(TARGET)%>%
+  summarise(n=n())%>%
+  mutate(percentage=n/sum(n)) # Looking at % distribution
+
+# Boxplot to visualize the difference
+a_train%>%
+  ggplot()+
+  geom_bar(aes(x=TARGET))+
+  ggtitle("Target variable distribution")
+
+
+```
+> Notes to exploration: About 92% of the data set has TARGET variable set to 0, meaning that only 8% of the data set has had difficulties with with late payment.It will be important to take this into consideration if doing a classification tree later on. We might want focus more on getting the 8% right. 
+
+## Exploration of Target variable in relation to predictors
+### Correct data for analysis
+```{r}
+a_train %>% str()
+a_train <- read.csv("application_train.csv",stringsAsFactors = TRUE) # changing characters to factors
+a_train$TARGET <- as.factor(a_train$TARGET) # changing target variable to binomial variable
+a_train %>% str()
+```
+
+### Exploration of missing data
+
+```{r}
+# Look over missing data:
+a_train %>% summarize(across(everything(), ~ sum(is.na(.)))) 
+# Lots of missing data -> all missing data is numeric (int)
+
+# What if we remove all rows with missing data?
+b_train <- a_train %>% drop_na()
+b_train %>% summarize(across(everything(), ~ sum(is.na(.)))) # this removes almost all data - only 11,351 rows left from 307,511 -> not representative
+
+#Lets change missing data to average for all the numeric values as a "best guess"
+a_train[] <- lapply(a_train, function(x) {
+  if(is.numeric(x)) {
+    x[is.na(x)] <- mean(x, na.rm = TRUE)
+  }
+  return(x)
+})
+
+# Lets look at the data again
+a_train %>% summarize(across(everything(), ~ sum(is.na(.)))) # Looks good!
+```
+> Chose to clean data usign the average to replace NAs as removal of missing values eliminated most of the data set. Also, all missing values were numeric, which allow us to impute "averages to fill in empty data.
+
+### Correlation and relationships
+
+```{r}
+#numeric_data <- a_train[,sapply(a_train, is.numeric)]
+#correlation_matrix <- cor(numeric_data, use = "complete.obs")
+#print(correlation_matrix)
+# Did this analysis to see if any relationships were clear -> giving a subset below of the most important ones
+
+a_train %>% select(AMT_INCOME_TOTAL,AMT_CREDIT,AMT_CREDIT,AMT_ANNUITY,AMT_GOODS_PRICE,REGION_POPULATION_RELATIVE,CNT_FAM_MEMBERS,OWN_CAR_AGE, CNT_CHILDREN, CNT_FAM_MEMBERS, REGION_RATING_CLIENT) %>% cor()
+
+#Removing some data
+a_train <- a_train %>%
+  select(-AMT_GOODS_PRICE,-CNT_CHILDREN)
+
+# str(a_train)
+
+# To explore some fo the numeric variables relationship to TARGET, the following shows boxplots for a few variables
+a_train %>% 
+  ggplot()+
+  geom_boxplot(aes(x= TARGET, y=AMT_CREDIT))+
+  ggtitle("() in relation to Target")
+
+a_train %>% 
+  ggplot()+
+  geom_boxplot(aes(x= TARGET, y= AMT_INCOME_TOTAL))+
+  ggtitle("Amount total income in relation to Target")
+
+a_train %>% 
+  ggplot()+
+  geom_boxplot(aes(x= TARGET, y= REGION_POPULATION_RELATIVE))+
+  ggtitle("Region population in relation to Target")
+
+a_train %>% 
+  ggplot()+
+  geom_boxplot(aes(x= TARGET, y= CNT_FAM_MEMBERS))+
+  ggtitle("Count of family members in relation to Target")
+
+a_train %>% 
+  ggplot()+
+  geom_boxplot(aes(x= TARGET, y= OWN_CAR_AGE))+
+  ggtitle("Car age in relation to Target")
+
+```
+> Takeaways from relationships here: AMT_CREDIT, AMT_ANNUITY and AMT_GOODS_PRICE have all high correlation with eachother. Also, CNT_CHILDREN and CNT_FAMILY and REGION_POPULATION_RELATIVE and REGION_RATING_CLIENT have high correlations. Therefore, CNT_CHILDREN and AMT_GOODS_PRICE have been deleted. Rest have no clear correlation after looking through all numeric values.
+
+
+## Data consistent?
+
+```{r}
+# First looking at the summary of data
+a_train %>% summary()
+
+# A few data poins stood out: AMT_INCOME_TOTAL, with very high max compared to the rest of the distribution, as well as DAYS_EMPLOYED with most data being negative, yet some data and average is positive
+
+a_train%>%
+  ggplot(aes(x=AMT_INCOME_TOTAL))+
+  geom_histogram(bins=50)+
+  ggtitle("Income distribution")
+# some large outliers makes the distribution very right skewed
+
+a_train%>%
+  ggplot(aes(x=DAYS_EMPLOYED))+
+  geom_histogram(bins=50)+
+  ggtitle("Days Employed")
+# the days employed seems to have a fairly large number of positive in the data, yet description indicates that it only should be negative numbers
+
+
+a_train%>%
+  group_by(DAYS_EMPLOYED)%>%
+  filter(DAYS_EMPLOYED >= 0)%>%
+  summarise(n=n())
+
+#Max days shows 365,243, which is:
+365243/365 # 1000 years of employment -> not correct
+# Only two data points has 0, and the number 365243 appear to be repeated 55,374 times in the data set
+
+# To see if this is a thing in common with NAME_INCOME TYPE
+a_train%>%
+  ggplot()+
+  geom_bar(aes(x=NAME_INCOME_TYPE, fill=NAME_INCOME_TYPE))+
+  ggtitle("NAME of income type for client")
+
+# is there a relationship with Pension and the arbitrary number 365243?
+
+a_train%>%
+  group_by(NAME_INCOME_TYPE)%>%
+  filter(NAME_INCOME_TYPE == "Pensioner")%>%
+  summarise(n=n())
+
+a_train%>%
+  filter(NAME_INCOME_TYPE=="Pensioner")%>%
+  ggplot(aes(DAYS_EMPLOYED))+
+  geom_histogram(bins=5)
+
+a_train%>%
+  group_by(DAYS_EMPLOYED)%>%
+  filter(NAME_INCOME_TYPE == "Pensioner")%>%
+  summarise(n=n())
+  
+# Yes, the number is consistent for people with pension -> using 0 will work as they currently are "unemployed"
+
+# due to the nature of the data, we will replace all positive values with 0
+a_train$DAYS_EMPLOYED <- ifelse(a_train$DAYS_EMPLOYED > 0, 0, a_train$DAYS_EMPLOYED) 
+
+# The new distribution for DAYS_EMPLOYED
+a_train%>%
+  ggplot(aes(x=DAYS_EMPLOYED))+
+  geom_histogram(bins=50)+
+  ggtitle("Days Employed")
+
+# To check if this is true for DAYS_REGISTRATION as well:
+a_train%>%
+  ggplot(aes(x=DAYS_REGISTRATION))+
+  geom_histogram(bins=50)+
+  ggtitle("Days Employed")
+# No, it is not
+
+
+```
+> In the data, the arbitrary number 365243 was used to lable all people with pension for days since last employment started. This created a false picture for the distribution. Therefore, the number was changed to 0 to capture that there are no current employment.
+
+## Exploration of transactional data
+### Bureau data cleaning and exploration
+
+```{r}
+str(bureau)
+bureau$CREDIT_ACTIVE <- as.factor(bureau$CREDIT_ACTIVE)
+bureau$CREDIT_CURRENCY <- as.factor(bureau$CREDIT_CURRENCY)
+bureau$CREDIT_TYPE <- as.factor(bureau$CREDIT_TYPE)
+
+bureau %>% summarize(across(everything(), ~ sum(is.na(.))))
+
+bureau[] <- lapply(bureau, function(x) {
+  if(is.numeric(x)) {
+    x[is.na(x)] <- mean(x, na.rm = TRUE)
+  }
+  return(x)
+})
+
+# bureau %>% summarize(across(everything(), ~ sum(is.na(.))))
+
+## Correlation
+numeric_data <- bureau[,sapply(bureau, is.numeric)]
+correlation_matrix <- cor(numeric_data, use = "complete.obs")
+print(correlation_matrix)
+# No clear correlation
+
+```
+> Cleaning and structuring the Bureau data shows that this data set has many-to-one relationships with the train data. Therefore, we might have to group each id with averages, sums or some other summary statistic later on before joining. Other than that, there are no obvious correlation.
+
+### Posh cash balance, installment payments, and credit card balance cleaning and exploration
+
+```{r}
+str(PC_balance)
+PC_balance$NAME_CONTRACT_STATUS <- as.factor(PC_balance$NAME_CONTRACT_STATUS)
+PC_balance %>% summarize(across(everything(), ~ sum(is.na(.))))
+PC_balance <- na.omit(PC_balance)
+#numeric_data2 <- PC_balance[,sapply(PC_balance, is.numeric)]
+#correlation_matrix2 <- cor(numeric_data2, use = "complete.obs")
+#print(correlation_matrix2)
+# No clear correlation
+
+str(inst_pmt)
+inst_pmt %>% summarize(across(everything(), ~ sum(is.na(.))))
+inst_pmt <- na.omit(inst_pmt)
+#numeric_data3 <- inst_pmt[,sapply(inst_pmt, is.numeric)]
+#correlation_matrix3 <- cor(numeric_data3, use = "complete.obs")
+#print(correlation_matrix3)
+inst_pmt <- inst_pmt %>% select(-DAYS_ENTRY_PAYMENT, - AMT_PAYMENT) # remove highly correlated values
+
+str(CD_balance)
+CD_balance$NAME_CONTRACT_STATUS <- as.factor(CD_balance$NAME_CONTRACT_STATUS)
+CD_balance %>% summarize(across(everything(), ~ sum(is.na(.))))
+# Large amount of missing rows in multiple columns, will just remove columns
+CD_balance <- CD_balance%>% select( -AMT_DRAWINGS_OTHER_CURRENT,-AMT_DRAWINGS_POS_CURRENT,-AMT_INST_MIN_REGULARITY,-AMT_PAYMENT_CURRENT,-CNT_DRAWINGS_ATM_CURRENT, -CNT_DRAWINGS_OTHER_CURRENT, -CNT_DRAWINGS_POS_CURRENT, -CNT_INSTALMENT_MATURE_CUM,-AMT_DRAWINGS_ATM_CURRENT)
+## Looking at correlation within data set
+#numeric_data4 <- CD_balance[,sapply(CD_balance, is.numeric)]
+#correlation_matrix4 <- cor(numeric_data4, use = "complete.obs")
+#print(correlation_matrix4)
+#Removing with high correlation:
+CD_balance <- CD_balance%>% select(-AMT_RECEIVABLE_PRINCIPAL,-AMT_RECIVABLE,-AMT_TOTAL_RECEIVABLE)
+
+
+```
+> All the data sets have many-to-one relationships with both training data and the previous application data that will be consolidated. Therefore, we will have to impute summary statistics for all the data sets later.
+
+### Previous application data processing
+```{r}
+#str(prev_app)
+prev_app <- read.csv("previous_application.csv",stringsAsFactors = TRUE)
+prev_app %>% summarize(across(everything(), ~ sum(is.na(.))))
+# large amount of data from some variables -> removing those
+prev_app <- prev_app %>% select(-AMT_ANNUITY,-AMT_DOWN_PAYMENT,-AMT_GOODS_PRICE,-RATE_DOWN_PAYMENT,-RATE_INTEREST_PRIMARY, -RATE_INTEREST_PRIVILEGED,-CNT_PAYMENT,-DAYS_FIRST_DRAWING,DAYS_FIRST_DUE,-DAYS_LAST_DUE_1ST_VERSION,-DAYS_LAST_DUE,-DAYS_TERMINATION,-NFLAG_INSURED_ON_APPROVAL)
+prev_app <- na.omit(prev_app) # removing a few rows with missing data
+
+numeric_data5 <- prev_app[,sapply(prev_app, is.numeric)]
+correlation_matrix5 <- cor(numeric_data5, use = "complete.obs")
+print(correlation_matrix5)
+# high correlation between AMT application and AMT credit
+prev_app <- prev_app %>% select(-AMT_APPLICATION) # removing one variable with high correlation
+
+prev_app2 <- prev_app %>%
+  group_by(SK_ID_CURR)%>%
+  summarise(AVG_DAYS_DUE = mean(DAYS_FIRST_DUE),
+            AVG_AMT_CREDIT = mean(AMT_CREDIT))%>%
+  arrange(SK_ID_CURR)
+head(prev_app2,5)
+```
+> The previous application data set is a one-to-one relationship with the train data. We will join installments payments, POS_CASH_balance and credit_card_balance to this datataset before joining it with the train data, together with the bureau data. 
+
+## Manipulating external data
+```{r}
+## Because of the many-to-one relationships with the following data sets, we will make summary statistics before combining the data sets. 
+
+# Bureau data
+bureau2 <- bureau %>%
+  group_by(SK_ID_CURR)%>%
+  summarise(MAX_CREDIT_OVERDUE = max(CREDIT_DAY_OVERDUE),
+            AVG_CREDIT_SUM = mean(AMT_CREDIT_SUM),
+            AVG_CREDIT_SUM_DEBT = mean(AMT_CREDIT_SUM_DEBT),
+            AVG_AMT_CREDIT_OVER = mean(AMT_CREDIT_SUM_OVERDUE))%>%
+  arrange(SK_ID_CURR)
+head(bureau2,5)
+
+# Pos Cash Balance
+PC_balance3 <- PC_balance %>%
+  group_by(SK_ID_CURR)%>%
+  summarise(TERM_COMPLETE = ifelse(min(CNT_INSTALMENT_FUTURE)==0,0,1),
+            MAX_TERM_CRED = max(CNT_INSTALMENT),
+            Sum_POS_DPD = sum(SK_DPD))%>%
+  arrange(SK_ID_CURR)
+
+PC_balance3$TERM_COMPLETE <- as.factor(PC_balance3$TERM_COMPLETE)
+head(PC_balance3,5)
+
+
+# Installment payments
+instpmt3 <- inst_pmt %>%
+  group_by(SK_ID_CURR)%>%
+  summarise(AVG_DAYS_INSTALMENT = mean(DAYS_INSTALMENT),
+            ACG_AMT_INSTALMENT = mean(AMT_INSTALMENT))%>%
+  arrange(SK_ID_CURR)
+head(instpmt3,5)
+
+# Credit card balance
+CD_balance3 <- CD_balance %>%
+  group_by(SK_ID_CURR)%>%
+  summarise(AVG_AMT_BALANCE = mean(AMT_BALANCE),
+            AVG_CREDIT_LIMIT = mean(AMT_CREDIT_LIMIT_ACTUAL),
+            SUM_PAYMENT_TOTAL = sum(AMT_PAYMENT_TOTAL_CURRENT),
+            SUM_CNT_DRAWINGS = sum(CNT_DRAWINGS_CURRENT),
+            SUM_CC_DPD = sum(SK_DPD))%>%
+  arrange(SK_ID_CURR)
+head(CD_balance3,5)
+
+```
+> Choosing summary statistics that makes sense from the data description. 
+
+## Join data
+```{r}
+# Join previous data on prev key
+previous_join2 <- prev_app2 %>%
+  inner_join(PC_balance3, by = "SK_ID_CURR")%>%
+  inner_join(instpmt3, by = "SK_ID_CURR")# %>% inner_join(CD_balance2, by = "SK_ID_PREV") # why does this not work? It does dropps all data
+previous_join2 <- previous_join2 %>% select(-SK_ID_PREV) # removing data that cannot be used
+
+# Joining all data sets to training data
+train_data2 <- a_train %>%
+  inner_join(bureau2, by = "SK_ID_CURR")%>%
+  inner_join(previous_join2, by = "SK_ID_CURR")
+
+# Overview of data
+str(train_data2)
+```
+> The data is joined and ready for modeling.
+
+
+# Start modeling
+### Linear regression
+```{r}
+#Change some factors
+featured <- train_data2%>%
+  mutate(income_credit_ratio = AMT_INCOME_TOTAL / AMT_CREDIT,
+         annuity_credit_ratio = AMT_ANNUITY / AMT_CREDIT,
+         age_employment_ratio = DAYS_BIRTH / DAYS_EMPLOYED)
+
+```
+
+
+```{r}
+# split data for practice
+set.seed(100)
+n <- 20000
+random_rows <- sample(1:nrow(train_data2), n)
+selected_data <- train_data2[random_rows, ]
+
+```
+
+```{r}
+set.seed(123) #setting seed for regression
+lambda_vector <- 10^seq(5,-5,length=500) # creating a lambda vector
+# Creating a model using alpha = 1 for LASSO
+Lasso_model1 <- train(TARGET ~ .,
+                data = selected_data,
+                preProcess= c("center","scale"),
+                method="glmnet",
+                tuneGrid = expand.grid(alpha=1,lambda=lambda_vector))
+
+# Looking at the coefficients
+coef(Lasso_model1$finalModel,Lasso_model1$bestTune$lambda)
+
+ggplot(varImp(Lasso_model1))
+```
+
+
+
+```{r}
+
+set.seed(100)
+inTrain <- createDataPartition(y=selected_data$TARGET, p = 0.70, list=FALSE)
+train_target <- selected_data[inTrain,1]
+test_target <- selected_data[-inTrain,1]
+train_input <- selected_data[inTrain,-1]
+test_input <- selected_data[-inTrain,-1]
+
+lm_model <- lm(train_target ~ ., data = train_input)
+
+rpart_model <- rpart(train_target ~ ., data = train_input)
+
+m5p_model <- M5P(train_target ~ ., data = train_input)
+
+# B 
+# lm model
+summary(lm_model)
+
+
+```
+
+
+
+
+```{r}
+# final data linear regression
+model0 <- naiveBayes(TARGET ~ .,data=)
+
+#CD_w2_train
+
+#Predicting train and test sets
+predicted_model0 <- predict(model0, final_data) 
+
+mmetric(final_data$TARGET, predicted_model0, metric=metrics_list)
+
+linregmod <- lm(TARGET~.,final_data)
+summary(linregmod)
+linregmod_pred <- predict(linregmod,final_data)
+mmetric(final_data$TARGET, linregmod_pred, metric=metrics_list)
+
+  
+tree_cf_1 <- C5.0(TARGET~.,final_data,control = C5.0Control(CF=.0,earlyStopping = FALSE,noGlobalPruning = TRUE))
+
+tree_cf_1$size
+
+tree_cf_1_pred <- predict(tree_cf_1,final_data)
+
+mmetric(final_data$TARGET, tree_cf_1_pred, metric=metrics_list)
+
+```
+
+
+```{r Named Cross-validation Function}
+# using the function from NB Titanic Tutorial:
+cv_function <- function(df, target, nFolds, seedVal, classification, metrics_list)
+{
+
+  set.seed(seedVal)
+  folds = createFolds(df[,target],nFolds)
+  # folds
+ # A
+ cv_results <- lapply(folds, function(x)
+ { 
+   train <- df[-x,-target]
+   test  <- df[x,-target]
+   
+   train_target <- df[-x,target]
+   test_target <- df[x,target]
+   
+   classification_model <- classification(train,train_target) 
+   
+   pred<- predict(classification_model,test)
+   
+   return(mmetric(test_target,pred,metrics_list))
+ })
+ 
+ cv_results_m <- as.matrix(as.data.frame(cv_results))
+
+ cv_mean<- as.matrix(rowMeans(cv_results_m))
+ 
+ colnames(cv_mean) <- "Mean"
+ 
+ cv_sd <- as.matrix(rowSds(cv_results_m))
+ # C
+ colnames(cv_sd) <- "Sd"
+ 
+ cv_all <- cbind(cv_results_m, cv_mean, cv_sd)
+ # D.
+ 
+ kable(cv_all,digits=2)
+}
+
+# B.
+metrics_list <- c("ACC","PRECISION","TPR","F1", "AUC")
+
+```
+
+
+## Part 5
+
+```{r 5-fold C5.0 and naive Bayes evaluation performance with CV}
+
+
+# the order here is unimportant because we have passed named arguments. 
+
+## YOU DO. change the target to the correct column number. and choose a value for the number of folds for Cross-Validation. 
+
+cv_function(metrics_list =  metrics_list, 
+            df = final_data, 
+            target = 1, 
+            nFolds = 3, 
+            seed = 100,
+            classification =  naiveBayes)
+
+cv_function(metrics_list =  metrics_list, 
+            df = final_data, 
+            target = 1, 
+            nFolds = 3, 
+            seed = 100,
+            classification =  C5.0)
+
+
+
+```
