@@ -1,6 +1,6 @@
 ---
 title: "EDA Notebook and Modeling"
-author: "Shane Nisley & Gustav Vollo"
+author: "Gustav Vollo"
 output: 
   html_document:
     toc: true  
