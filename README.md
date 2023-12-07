@@ -1,4 +1,4 @@
-# Home-Credit-Default-Project
+# Home Credit Default Project
 
 - Home Credit aims to provide credit services to unbanked and underbanked groups, traditionally seen as high-risk due to lack of conventional credit history. The company uses predictive analytics to improve risk assessment and ensure fair credit access. This strategy is in line with their goal to reduce loan defaults while including those usually excluded from the financial system.
 
