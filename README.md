@@ -11,3 +11,6 @@
 > We faced several challenges, including managing big data and extended processing times. Additionally, we grappled with issues in feature imputation, which led to alterations in the distribution of our features. Another obstacle was the decision not to consolidate data due to inconsistencies in ID matches and disorganized data attributes.
 
 > This project provided valuable insights into the application of data analytics in real-time business contexts. The experience involved a challenging yet enlightening journey through handling large datasets with significant missing data, identifying key features, and selecting the optimal model to devise a business solution. Throughout this process, maintaining a business-centric approach was a critical and continuous test of focus and strategy. This all summarizes a project that was very fun but also extremely challenging. 
+
+Our project came to conlude that we need to balance financial inclusion with risk by dynamically adjusting the thresholds. The following graph outlines how increase in inclusion also leads to increase in risk.
+<img src="/Capture2.jpg?raw=true"/>
